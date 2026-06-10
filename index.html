@@ -1439,7 +1439,7 @@
       }
     }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 </head>
 
 <body>
@@ -1525,11 +1525,11 @@
         <div class="inc-rows">
           <div class="irow"><label>Salary</label>
             <div class="iw"><span class="rp">₹</span><input type="number" class="ai" id="salary" value="54500"
-                inputmode="numeric" oninput="recalc()" /></div>
+                inputmode="numeric" oninput="recalc();autoSave();" /></div>
           </div>
           <div class="irow"><label>Extra Income</label>
             <div class="iw"><span class="rp">₹</span><input type="number" class="ai" id="extra" value="8100"
-                inputmode="numeric" oninput="recalc()" /></div>
+                inputmode="numeric" oninput="recalc();autoSave();" /></div>
           </div>
         </div>
       </div>
@@ -1557,7 +1557,15 @@
           <div class="sec-total" id="tVar" style="color:var(--warn)">₹0</div>
         </div>
         <div class="var-rows" id="varList"></div>
-        <button class="add-btn add-var" onclick="addVar()">+ Add Expense</button>
+        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+          <button class="add-btn add-var" onclick="addVar()">
+            + Add Expense
+          </button>
+          <button class="btn btn-g" onclick="copyPreviousMonth()">
+            📋 Copy Last Month
+          </button>
+
+        </div>
       </div>
 
     </div><!-- /sec-grid -->
@@ -1837,6 +1845,18 @@
       document.getElementById('saveLbl').textContent = 'Saved ' + new Date().toLocaleTimeString();
       toast('💾 Saved!', true);
     }
+
+    function autoSave() {
+      saveData();
+      const lbl = document.getElementById('saveLbl');
+      if (!lbl) return;
+      lbl.textContent = 'Auto Saved ✓';
+      clearTimeout(window.autoSaveTimer);
+      window.autoSaveTimer = setTimeout(() => {
+        lbl.textContent = 'Saved';
+      }, 1500);
+    }
+
     function captureInputs() {
       const d = mD(CY, CMI);
       d.salary = parseFloat(document.getElementById('salary').value) || 0;
@@ -1901,10 +1921,10 @@
     function updFixed(idx, field, val) {
       const d = mD(CY, CMI); d.fixedItems[idx][field] = field === 'amt' ? (parseFloat(val) || 0) : val;
       document.getElementById('tFixed').textContent = '₹' + fmt(d.fixedItems.reduce((a, r) => a + (+r.amt || 0), 0));
-      recalc();
+      recalc(); autoSave();
     }
-    function addFixed() { mD(CY, CMI).fixedItems.push({ label: '', key: 'c_' + Date.now(), amt: 0 }); renderFixed(); }
-    function delFixed(idx) { mD(CY, CMI).fixedItems.splice(idx, 1); renderFixed(); recalc(); }
+    function addFixed() { mD(CY, CMI).fixedItems.push({ label: '', key: 'c_' + Date.now(), amt: 0 }); renderFixed(); autoSave(); }
+    function delFixed(idx) { mD(CY, CMI).fixedItems.splice(idx, 1); renderFixed(); recalc(); autoSave(); }
 
     // ════════════════════════════════════════════
     //  VARIABLE EXPENSES
@@ -1929,9 +1949,53 @@
       const t = (d.varExp || []).reduce((a, r) => a + (+r.amount || 0), 0);
       document.getElementById('tVar').textContent = '₹' + fmt(t); return t;
     }
-    function updVar(idx, f, v) { mD(CY, CMI).varExp[idx][f] = v; recalc(); }
-    function addVar() { mD(CY, CMI).varExp.push({ name: '', amount: '' }); renderVar(); }
-    function delVar(idx) { mD(CY, CMI).varExp.splice(idx, 1); renderVar(); recalc(); }
+    function updVar(idx, f, v) { mD(CY, CMI).varExp[idx][f] = v; recalc(); autoSave(); }
+    function addVar() { mD(CY, CMI).varExp.push({ name: '', amount: '' }); renderVar(); autoSave(); }
+    function delVar(idx) { mD(CY, CMI).varExp.splice(idx, 1); renderVar(); recalc(); autoSave(); }
+
+    function copyPreviousMonth() {
+
+      if (CMI === 0) {
+
+        toast(
+          '⚠ No previous month available'
+        );
+
+        return;
+      }
+
+      if (
+        !confirm(
+          'Copy previous month expenses?'
+        )
+      ) {
+        return;
+      }
+
+      const prev =
+        mD(CY, CMI - 1);
+
+      const cur =
+        mD(CY, CMI);
+
+      cur.varExp =
+        JSON.parse(
+          JSON.stringify(
+            prev.varExp || []
+          )
+        );
+
+      renderVar();
+
+      recalc();
+
+      autoSave();
+
+      toast(
+        '✅ Previous month copied',
+        true
+      );
+    }
 
     // ════════════════════════════════════════════
     //  RECALCULATE
