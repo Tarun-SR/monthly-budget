@@ -1401,6 +1401,56 @@
       }
     }
 
+    /* ═══ MONTH NOTES ═══ */
+    .notes-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 14px;
+      margin-bottom: 11px;
+    }
+    .notes-hdr {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .notes-title {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: .78rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .notes-ta {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: var(--text);
+      font-size: .82rem;
+      font-family: 'Inter', sans-serif;
+      line-height: 1.5;
+      resize: vertical;
+      min-height: 72px;
+    }
+    .notes-ta:focus {
+      outline: none;
+      border-color: var(--accent2);
+    }
+    .notes-ta::placeholder { color: var(--muted); }
+    .notes-char-count {
+      font-size: .65rem;
+      color: var(--muted);
+      text-align: right;
+      margin-top: 4px;
+    }
+
     /* Analytics */
 
     .analytics-grid {
@@ -1663,6 +1713,17 @@
       <div class="wants-stats" id="wantsStats"></div>
     </div>
 
+    <!-- ═══ MONTH NOTES ═══ -->
+    <div class="notes-card">
+      <div class="notes-hdr">
+        <div class="notes-title">📝 <span id="notesMonthLabel">June</span> Notes</div>
+        <span class="notes-char-count" id="notesCount">0 / 300</span>
+      </div>
+      <textarea class="notes-ta" id="monthNotes" maxlength="300"
+        placeholder="Why was this month different? Big expense, bonus, trip, EMI… note it here."
+        oninput="saveNote();updateNoteCount()"></textarea>
+    </div>
+
     <!-- ═══ YEAR TABLE ═══ -->
     <div class="yr-card">
       <div class="yr-title" id="yrTableTitle">Year Overview</div>
@@ -1846,15 +1907,16 @@
       toast('💾 Saved!', true);
     }
 
+    // Debounced silent auto-save — waits 2s after last change, no toast, no DOM side-effects
     function autoSave() {
-      saveData();
       const lbl = document.getElementById('saveLbl');
-      if (!lbl) return;
-      lbl.textContent = 'Auto Saved ✓';
+      if (lbl) lbl.textContent = '● Unsaved';
       clearTimeout(window.autoSaveTimer);
       window.autoSaveTimer = setTimeout(() => {
-        lbl.textContent = 'Saved';
-      }, 1500);
+        captureInputs();
+        localStorage.setItem('budgetApp4', JSON.stringify(D));
+        if (lbl) lbl.textContent = 'Auto-saved ✓';
+      }, 2000);
     }
 
     function captureInputs() {
@@ -1919,9 +1981,13 @@
       return tot;
     }
     function updFixed(idx, field, val) {
-      const d = mD(CY, CMI); d.fixedItems[idx][field] = field === 'amt' ? (parseFloat(val) || 0) : val;
+      const d = mD(CY, CMI);
+      d.fixedItems[idx][field] = field === 'amt' ? (parseFloat(val) || 0) : val;
       document.getElementById('tFixed').textContent = '₹' + fmt(d.fixedItems.reduce((a, r) => a + (+r.amt || 0), 0));
-      recalc(); autoSave();
+      if (field === 'amt') {
+        recalc(); // only recalc when amount changes
+      }
+      autoSave();
     }
     function addFixed() { mD(CY, CMI).fixedItems.push({ label: '', key: 'c_' + Date.now(), amt: 0 }); renderFixed(); autoSave(); }
     function delFixed(idx) { mD(CY, CMI).fixedItems.splice(idx, 1); renderFixed(); recalc(); autoSave(); }
@@ -1949,7 +2015,17 @@
       const t = (d.varExp || []).reduce((a, r) => a + (+r.amount || 0), 0);
       document.getElementById('tVar').textContent = '₹' + fmt(t); return t;
     }
-    function updVar(idx, f, v) { mD(CY, CMI).varExp[idx][f] = v; recalc(); autoSave(); }
+    function updVar(idx, f, v) {
+      mD(CY, CMI).varExp[idx][f] = v;
+      if (f === 'amount') {
+        // Only recalc numbers when amount changes — never on text input
+        recalc();
+      } else {
+        // Name change: just update data + var total label, no recalc, no DOM rebuild
+        calcVarTotal();
+      }
+      autoSave();
+    }
     function addVar() { mD(CY, CMI).varExp.push({ name: '', amount: '' }); renderVar(); autoSave(); }
     function delVar(idx) { mD(CY, CMI).varExp.splice(idx, 1); renderVar(); recalc(); autoSave(); }
 
@@ -2032,7 +2108,22 @@
       else if (CMI === 0) on.textContent = 'Your manually set balance';
       else on.textContent = 'Carried from ' + mo[CMI - 1];
 
-      checkMatch(); renderYearTable(); renderWants(); renderCharts();
+      checkMatch(); renderYearTable();
+      // Update wants spendable label in-place (no DOM rebuild)
+      updateWantsSpendable();
+    }
+
+    // Update only the spendable label inside wants — no list rebuild
+    function updateWantsSpendable() {
+      const buf = getBuf(CY);
+      const closing = bestClosing(CY);
+      const spendable = closing !== null ? closing - buf : null;
+      const sl = document.getElementById('spendLbl');
+      if (!sl) return;
+      if (spendable !== null) {
+        sl.textContent = '₹' + fmt(Math.max(0, spendable)) + ' spendable';
+        sl.style.color = spendable > 0 ? 'var(--accent2)' : 'var(--danger)';
+      } else { sl.textContent = '—'; sl.style.color = 'var(--muted)'; }
     }
 
     function checkMatch() {
@@ -2065,15 +2156,47 @@
         const ok = !isNaN(act) && cl !== null && Math.abs(act - cl) < 1;
         const tr = document.createElement('tr');
         if (i === CMI) tr.className = 'cm';
+
+        // Opening cell — editable inline for row 0 so user can fix mistakes
+        const openingCell = i === 0
+          ? `<td class="ts" style="min-width:110px;">
+               <input type="number"
+                 value="${op != null ? op : ''}"
+                 placeholder="Set balance"
+                 inputmode="decimal"
+                 title="Edit ${aMo(CY)[0]} opening balance"
+                 style="background:transparent;border:none;border-bottom:1px dashed var(--accent);
+                        color:var(--accent);font-family:'Space Grotesk',sans-serif;font-weight:600;
+                        font-size:.74rem;width:100%;outline:none;padding:2px 0;"
+                 oninput="inlineSetOpening(this.value)"
+                 onfocus="this.style.borderBottomColor='var(--accent2)'"
+                 onblur="this.style.borderBottomColor='var(--accent)'"
+               />
+               <div style="font-size:.6rem;color:var(--muted);margin-top:1px">✏️ tap to edit</div>
+             </td>`
+          : `<td class="ts">${op !== null ? '₹' + fmt(op) : '—'}</td>`;
+
         tr.innerHTML = `<td style="font-weight:600">${m.slice(0, 3)}</td>
-      <td class="tp">₹${fmt(inc)}</td><td>₹${fmt(fix)}</td>
-      <td style="color:var(--warn)">₹${fmt(vrb)}</td>
-      <td class="${surplus >= 0 ? 'tp' : 'tn'}">${surplus < 0 ? '-' : ''}₹${fmt(surplus)}</td>
-      <td class="ts">${op !== null ? '₹' + fmt(op) : '—'}</td>
-      <td class="ts" style="font-weight:700">${cl !== null ? '₹' + fmt(cl) : '—'}</td>
-      <td>${d.actualBal !== '' ? (ok ? '<span style="color:var(--green)">✓</span>' : '<span style="color:var(--danger)">✗</span>') : '<span style="color:var(--muted)">—</span>'}</td>`;
+          <td class="tp">₹${fmt(inc)}</td>
+          <td>₹${fmt(fix)}</td>
+          <td style="color:var(--warn)">₹${fmt(vrb)}</td>
+          <td class="${surplus >= 0 ? 'tp' : 'tn'}">${surplus < 0 ? '-' : ''}₹${fmt(surplus)}</td>
+          ${openingCell}
+          <td class="ts" style="font-weight:700">${cl !== null ? '₹' + fmt(cl) : '—'}</td>
+          <td>${d.actualBal !== '' ? (ok ? '<span style="color:var(--green)">✓</span>' : '<span style="color:var(--danger)">✗</span>') : '<span style="color:var(--muted)">—</span>'}</td>`;
         tb.appendChild(tr);
       });
+    }
+
+    // Inline opening balance editor in year table — debounced so recalc only fires after typing stops
+    function inlineSetOpening(val) {
+      const v = parseFloat(val);
+      if (!isNaN(v) && v >= 0) {
+        D[okY(CY)] = v;
+        checkSetupBanner();
+        clearTimeout(window.openingTimer);
+        window.openingTimer = setTimeout(() => { recalc(); autoSave(); }, 600);
+      }
     }
 
     // ════════════════════════════════════════════
@@ -2159,21 +2282,117 @@
     ${spendable !== null ? `<div class="wstat">Spendable: <strong style="color:${spendable > 0 ? 'var(--accent2)' : 'var(--danger)'}">₹${fmt(Math.max(0, spendable))}</strong></div>` : ''}`;
     }
 
-    function updWant(idx, f, v) { getWants(CY)[idx][f] = v; renderWants(); }
+    // ── Helpers shared by updWant / toggleWant ──────────────────
+    function refreshWantPredRow(idx) {
+      const items = document.querySelectorAll('.want-item');
+      if (!items[idx]) return;
+      const w = getWants(CY)[idx];
+      const p = predict(w.amount);
+      const bcls = { go: 'pg', soon: 'ps', wait: 'pw', na: 'pn' }[p.type];
+      const bcol = { go: 'var(--green)', soon: 'var(--warn)', wait: 'var(--danger)', na: 'var(--border)' }[p.type];
+      const predRow = items[idx].querySelector('.want-pred');
+      if (predRow) predRow.innerHTML = `
+        <span class="pred-badge ${bcls}">${p.badge}</span>
+        <div class="want-bar-wrap">
+          <div class="want-bar-bg"><div class="want-bar-fill" style="width:${p.pct}%;background:${bcol}"></div></div>
+          <span class="want-pct">${Math.round(p.pct)}%</span>
+        </div>
+        ${p.reason ? `<span class="want-reason">${esc(p.reason)}</span>` : ''}`;
+    }
+    function refreshWantsStatsBar() {
+      const wants = getWants(CY);
+      const buf = getBuf(CY); const closing = bestClosing(CY);
+      const spendable = closing !== null ? closing - buf : null;
+      const total = wants.length;
+      const done = wants.filter(w => w.reached).length;
+      const pending = wants.filter(w => !w.reached);
+      const canBuy = pending.filter(w => w.amount && predict(+w.amount).type === 'go').length;
+      const pendAmt = pending.reduce((a, w) => a + (+w.amount || 0), 0);
+      document.getElementById('wantsBadge').textContent = total ? `${done}/${total} done` : '';
+      document.getElementById('wantsStats').innerHTML = `
+        <div class="wstat">Total: <strong class="wsp">${total}</strong></div>
+        <div class="wstat">Completed: <strong class="wsg">${done}</strong></div>
+        <div class="wstat">Pending: <strong class="wsw">${pending.length}</strong></div>
+        <div class="wstat">Can buy now: <strong class="wsg">${canBuy}</strong></div>
+        <div class="wstat">Pending total: <strong class="wsd">₹${fmt(pendAmt)}</strong></div>
+        ${spendable !== null ? `<div class="wstat">Spendable: <strong style="color:${spendable > 0 ? 'var(--accent2)' : 'var(--danger)'}">₹${fmt(Math.max(0, spendable))}</strong></div>` : ''}`;
+    }
+
+    // updWant — update data + only re-render prediction row (keyboard stays open)
+    function updWant(idx, f, v) {
+      getWants(CY)[idx][f] = v;
+      if (f === 'amount') {
+        // Only refresh prediction when amount changes — name changes don't affect it
+        refreshWantPredRow(idx);
+        refreshWantsStatsBar();
+      }
+      autoSave();
+    }
+
+    // toggleWant — flip done class + checkbox in-place, no DOM rebuild
     function toggleWant(idx, val) {
-      getWants(CY)[idx].reached = val; renderWants();
+      getWants(CY)[idx].reached = val;
+      const items = document.querySelectorAll('.want-item');
+      if (items[idx]) {
+        items[idx].classList.toggle('done', val);
+        // sync the name strikethrough class (targets .want-name-inp)
+        const nameInp = items[idx].querySelector('.want-name-inp');
+        if (nameInp) nameInp.style.textDecoration = val ? 'line-through' : '';
+      }
+      refreshWantPredRow(idx);
+      refreshWantsStatsBar();
+      autoSave();
       toast(val ? '🎉 Marked as purchased!' : '↩ Unmarked', val);
     }
+
     function addWant() {
-      getWants(CY).push({ name: '', amount: '', reached: false }); renderWants();
+      getWants(CY).push({ name: '', amount: '', reached: false });
+      renderWants(); // full render only on add (new row needs full DOM node)
       setTimeout(() => {
         const rows = document.querySelectorAll('.want-item');
-        if (rows.length) rows[rows.length - 1].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        if (rows.length) {
+          rows[rows.length - 1].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          // auto-focus the name input of the new row
+          const inp = rows[rows.length - 1].querySelector('.want-name-inp');
+          if (inp) inp.focus();
+        }
       }, 80);
     }
-    function delWant(idx) { getWants(CY).splice(idx, 1); renderWants(); }
-    function clearDone() { D[wkY(CY)] = getWants(CY).filter(w => !w.reached); renderWants(); toast('✅ Completed items cleared', true); }
-    function clearAllWants() { if (confirm('Clear all wants for ' + CY + '?')) { D[wkY(CY)] = []; renderWants(); toast('Cleared all wants'); } }
+
+    // delWant — fade out then remove, no full re-render
+    function delWant(idx) {
+      const items = document.querySelectorAll('.want-item');
+      if (items[idx]) {
+        items[idx].style.transition = 'opacity .2s, max-height .25s';
+        items[idx].style.opacity = '0';
+        items[idx].style.maxHeight = items[idx].offsetHeight + 'px';
+        setTimeout(() => { items[idx].style.maxHeight = '0'; items[idx].style.padding = '0'; }, 200);
+        setTimeout(() => {
+          getWants(CY).splice(idx, 1);
+          renderWants(); // re-render after removal so indices are correct
+          refreshWantsStatsBar();
+          autoSave();
+        }, 420);
+      } else {
+        getWants(CY).splice(idx, 1);
+        renderWants();
+        autoSave();
+      }
+    }
+
+    function clearDone() {
+      safeConfirmClear(() => {
+        D[wkY(CY)] = getWants(CY).filter(w => !w.reached);
+        renderWants(); autoSave();
+        toast('✅ Completed items cleared', true);
+      }, 'Clear all completed wants?');
+    }
+    function clearAllWants() {
+      safeConfirmClear(() => {
+        D[wkY(CY)] = []; renderWants(); autoSave();
+        toast('Cleared all wants');
+      }, `Clear ALL wants for ${CY}?`);
+    }
 
     // ════════════════════════════════════════════
     //  CSV
@@ -2196,6 +2415,11 @@
       getWants(CY).forEach(w => {
         const p = predict(+w.amount);
         csv += `"${w.name || ''}",${w.amount || 0},"${p.badge}",${Math.round(p.pct)},${w.reached ? 'Yes' : 'No'}\n`;
+      });
+      csv += '\nMONTH NOTES\nMonth,Notes\n';
+      aMo(CY).forEach((m, i) => {
+        const note = D[nkY(CY, i)] || '';
+        if (note) csv += `${m},"${note.replace(/"/g, '""')}"\n`;
       });
       const blob = new Blob([csv], { type: 'text/csv' });
       const url = URL.createObjectURL(blob);
@@ -2228,8 +2452,54 @@
     }
 
     // ════════════════════════════════════════════
-    //  UI HELPERS
+    //  NOTES
     // ════════════════════════════════════════════
+    const nkY = (y, i) => `__note_${y}_${i}`;
+
+    function saveNote() {
+      // Store in memory immediately but let debounced autoSave handle persistence
+      D[nkY(CY, CMI)] = document.getElementById('monthNotes').value;
+      autoSave(); // debounced — won't fire for 2s after last keystroke
+    }
+    function loadNote() {
+      const ta = document.getElementById('monthNotes');
+      const lbl = document.getElementById('notesMonthLabel');
+      const val = D[nkY(CY, CMI)] || '';
+      ta.value = val;
+      lbl.textContent = aMo(CY)[CMI];
+      updateNoteCount();
+    }
+    function updateNoteCount() {
+      const ta = document.getElementById('monthNotes');
+      const cc = document.getElementById('notesCount');
+      const len = ta.value.length;
+      cc.textContent = `${len} / 300`;
+      cc.style.color = len > 270 ? 'var(--warn)' : 'var(--muted)';
+    }
+
+    // ════════════════════════════════════════════
+    //  DATA SAFETY HELPERS  (Fix 4)
+    // ════════════════════════════════════════════
+    function safeConfirmClear(action, msg) {
+      // Check if there's meaningful data before showing the warning
+      const hasData = Object.keys(D).some(k => {
+        if (k.startsWith('__op_') || k.startsWith('__buf_') || k.startsWith('__wants_') || k.startsWith('__note_')) return true;
+        const yd = D[k];
+        if (typeof yd !== 'object') return false;
+        return Object.values(yd).some(m => m && (m.varExp?.some(v => v.name || v.amount) || m.actualBal));
+      });
+
+      if (hasData) {
+        const confirmed = confirm(
+          `⚠️ ${msg}\n\n` +
+          `This will remove data from your browser.\n\n` +
+          `👉 Tip: Click "Export CSV" first to keep a backup.\n\n` +
+          `Proceed anyway?`
+        );
+        if (!confirmed) return;
+      }
+      action();
+    }
     function openMenu() { document.getElementById('overlay').classList.add('on'); document.getElementById('mobMenu').classList.add('on'); }
     function closeMenu() { document.getElementById('overlay').classList.remove('on'); document.getElementById('mobMenu').classList.remove('on'); }
     function toast(msg, ok = false) {
@@ -2369,6 +2639,7 @@
       document.getElementById('salary').value = d.salary ?? 54500;
       document.getElementById('extra').value = d.extra ?? 8100;
       document.getElementById('actualBal').value = d.actualBal || '';
+      loadNote();
       renderFixed(); renderVar(); checkSetupBanner(); recalc(); renderWants(); renderCharts();
     }
 
